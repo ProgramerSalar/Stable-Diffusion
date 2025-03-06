@@ -1,36 +1,26 @@
-import argparse, os, sys, datetime, glob, importlib, csv
+import argparse, torch
 import numpy as np
-import time
-import torch
-import torchvision
-import pytorch_lightning as pl
+from torch.utils.data import Dataset, DataLoader, Subset, random_split
+from ldm.dataset.base import Txt2ImgIterableBaseDataset
 
-from packaging import version
-from omegaconf import OmegaConf
-from torch.utils.data import random_split, DataLoader, Dataset, Subset
-from functools import partial
-from PIL import Image
-
-from pytorch_lightning import seed_everything
 from pytorch_lightning.trainer import Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
-from pytorch_lightning.utilities.rank_zero import rank_zero_only
-from pytorch_lightning.utilities import rank_zero_info
-
-from dataset.base import Txt2ImgIterableBaseDataset
-from modules.utils import instantiate_from_config
-
+from pytorch_lightning.utilities.argparse import add_argparse_args
 
 def get_parser(**parser_kwargs):
+
     def str2bool(v):
         if isinstance(v, bool):
-            return v
+            return v 
+        
         if v.lower() in ("yes", "true", "t", "y", "1"):
             return True
+        
         elif v.lower() in ("no", "false", "f", "n", "0"):
             return False
+        
         else:
             raise argparse.ArgumentTypeError("Boolean value expected.")
+        
 
     parser = argparse.ArgumentParser(**parser_kwargs)
     parser.add_argument(
@@ -40,7 +30,7 @@ def get_parser(**parser_kwargs):
         const=True,
         default="",
         nargs="?",
-        help="postfix for logdir",
+        help="postfix for logdir"
     )
     parser.add_argument(
         "-r",
@@ -55,7 +45,7 @@ def get_parser(**parser_kwargs):
         "-b",
         "--base",
         nargs="*",
-        metavar="base_config.yaml",
+        metavar="config.yaml",
         help="paths to base configs. Loaded from left-to-right. "
              "Parameters can be overwritten or added with command-line options of the form `--key value`.",
         default=list(),
@@ -120,165 +110,237 @@ def get_parser(**parser_kwargs):
         default=True,
         help="scale base-lr by ngpu * batch_size * n_accumulate",
     )
-
-    # Add Trainer arguments manually
-    parser.add_argument(
-        "--gpus",
-        type=int,
-        default=None,
-        help="number of GPUs to use (default: None)",
-    )
-    parser.add_argument(
-        "--max_epochs",
-        type=int,
-        default=1000,
-        help="maximum number of epochs to train (default: 1000)",
-    )
-    parser.add_argument(
-        "--precision",
-        type=int,
-        default=32,
-        help="floating point precision (16 or 32, default: 32)",
-    )
-    parser.add_argument(
-        "--accumulate_grad_batches",
-        type=int,
-        default=1,
-        help="number of batches to accumulate gradients (default: 1)",
-    )
-    parser.add_argument(
-        "--check_val_every_n_epoch",
-        type=int,
-        default=1,
-        help="check validation every n epochs (default: 1)",
-    )
-    parser.add_argument(
-        "--resume_from_checkpoint",
-        type=str,
-        default=None,
-        help="path to a checkpoint to resume training from (default: None)",
-    )
-
     return parser
 
 
-if __name__ == "__main__":
-    now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
-    # Add cwd for convenience and to make classes in this file available when running as `python main.py`
+
+class WrappedDataset(Dataset):
+
+    """ Wraps an arbitrary object with __len__ and __getitem__ into a pytorch dataset."""
+
+    def __init__(self, dataset):
+        self.data = dataset
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        return self.data[idx]
+    
+
+def worker_init_fn(_):
+
+    worker_info = torch.utils.data.get_worker_info()
+
+    dataset = worker_info.dataset
+    worker_id = worker_info.id 
+
+    if isinstance(dataset, Txt2ImgIterableBaseDataset):
+        split_size = dataset.num_records // worker_info.num_workers
+        # reset num_records to the true number to retain reliable length information
+        dataset.sample_ids = dataset.valid_ids[worker_id * split_size:(worker_id + 1) * split_size]
+        current_id = np.random.choice(len(np.random.get_state()[1]), 1)
+        return np.random.seed(np.random.get_state()[1][current_id] + worker_id)
+    else:
+        return np.random.seed(np.random.get_state()[1][0] + worker_id)
+
+import pytorch_lightning as pl
+from functools import partial
+from ldm.modules.utils import instantiate_from_config
+
+class DataModuleFromConfig(pl.LightningDataModule):
+
+    def __init__(self, 
+                 batch_size, 
+                 train=None,
+                 validation=None,
+                 test=None,
+                 predict=None,
+                 wrap=False,
+                 num_workers=None,
+                 shuffle_test_loader=False,
+                 use_worker_init_fn=False,
+                 shuffle_val_dataloader=False):
+        
+        super().__init__()
+        self.batch_size = batch_size
+        self.dataset_configs = dict()
+        self.num_workers = num_workers if num_workers is not None else batch_size * 2 
+        self.use_worker_init_fn = use_worker_init_fn
+
+        if train is not None:
+            self.dataset_configs["train"] = train 
+            self.train_dataloader = self._train_dataloader
+
+        if validation is not None:
+            self.dataset_configs["validation"] = validation
+            self.val_dataloader = partial(self._val_dataloader, shuffle=shuffle_val_dataloader)
+
+        if test is not None:
+            self.dataset_configs["test"] = test 
+            self.test_dataloader = partial(self._test_dataloader, shuffle=shuffle_test_loader)
+
+        if predict is not None:
+            self.dataset_configs["predict"] = predict
+            self.predict_dataloader = self._predict_dataloader
+
+        self.wrap = wrap 
+
+
+    def prepare_data(self):
+        for data_cfg in self.dataset_configs.values():
+            instantiate_from_config(data_cfg)
+
+
+    def setup(self, stage = None):
+        self.datasets = dict(
+            (k, instantiate_from_config(self.dataset_configs[k]))
+            for k in self.dataset_configs
+        )
+
+        if self.wrap:
+            for k in self.datasets:
+                self.datasets[k] = WrappedDataset(self.datasets[k])
+
+
+
+        
+
+
+    def _train_dataloader(self):
+        is_iterable_dataset = isinstance(self.datasets['train'], Txt2ImgIterableBaseDataset)
+        if is_iterable_dataset or self.use_worker_init_fn:
+            init_fn = worker_init_fn
+        else:
+            init_fn = None
+        return DataLoader(self.datasets["train"], batch_size=self.batch_size,
+                          num_workers=self.num_workers, shuffle=False if is_iterable_dataset else True,
+                          worker_init_fn=init_fn)
+
+    def _val_dataloader(self, shuffle=False):
+        if isinstance(self.datasets['validation'], Txt2ImgIterableBaseDataset) or self.use_worker_init_fn:
+            init_fn = worker_init_fn
+        else:
+            init_fn = None
+        return DataLoader(self.datasets["validation"],
+                          batch_size=self.batch_size,
+                          num_workers=self.num_workers,
+                          worker_init_fn=init_fn,
+                          shuffle=shuffle)
+
+    def _test_dataloader(self, shuffle=False):
+        is_iterable_dataset = isinstance(self.datasets['train'], Txt2ImgIterableBaseDataset)
+        if is_iterable_dataset or self.use_worker_init_fn:
+            init_fn = worker_init_fn
+        else:
+            init_fn = None
+
+        # do not shuffle dataloader for iterable dataset
+        shuffle = shuffle and (not is_iterable_dataset)
+
+        return DataLoader(self.datasets["test"], batch_size=self.batch_size,
+                          num_workers=self.num_workers, worker_init_fn=init_fn, shuffle=shuffle)
+
+    def _predict_dataloader(self, shuffle=False):
+        if isinstance(self.datasets['predict'], Txt2ImgIterableBaseDataset) or self.use_worker_init_fn:
+            init_fn = worker_init_fn
+        else:
+            init_fn = None
+        return DataLoader(self.datasets["predict"], batch_size=self.batch_size,
+                          num_workers=self.num_workers, worker_init_fn=init_fn)
+    
+
+
+
+def nondefault_trainer_args(opt):
+    # create an argumentparser
+    parser = argparse.ArgumentParser()
+    # Add Trainer Arguments
+    parser = add_argparse_args(Trainer, parser)
+    # Parse Empty Arguments
+    args = parser.parse_args([])
+    # Compare opt with default args
+    # return sorted(k for k in vars(args) if getattr(opt, k) != getattr(args, k))
+    return sorted(k for k in vars(args) if hasattr(opt, k) and getattr(opt, k) != getattr(args,k))
+
+
+
+if __name__ == "__main__":
+    # python -m main --base config/config.yaml
+    
+    import datetime, sys, os, glob
+    from pytorch_lightning import seed_everything
+    from omegaconf import OmegaConf
+
+
+
+    now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     sys.path.append(os.getcwd())
 
     parser = get_parser()
-    opt, unknown = parser.parse_known_args()
+    parser = add_argparse_args(Trainer, parser)
+    # print(parser)
+    
 
-    if opt.name and opt.resume:
-        raise ValueError(
-            "-n/--name and -r/--resume cannot be specified both."
-            "If you want to resume training in a new log folder, "
-            "use -n/--name in combination with --resume_from_checkpoint"
-        )
-    if opt.resume:
-        if not os.path.exists(opt.resume):
-            raise ValueError("Cannot find {}".format(opt.resume))
-        if os.path.isfile(opt.resume):
-            paths = opt.resume.split("/")
-            logdir = "/".join(paths[:-2])
-            ckpt = opt.resume
-        else:
-            assert os.path.isdir(opt.resume), opt.resume
-            logdir = opt.resume.rstrip("/")
-            ckpt = os.path.join(logdir, "checkpoints", "last.ckpt")
+    # opt, unknown = parser.parse_known_args()
+    # # print("opt", opt)
+    # # print("unknown", unknown)
 
-        opt.resume_from_checkpoint = ckpt
-        base_configs = sorted(glob.glob(os.path.join(logdir, "configs/*.yaml")))
-        opt.base = base_configs + opt.base
-        _tmp = logdir.split("/")
-        nowname = _tmp[-1]
-    else:
-        if opt.name:
-            name = "_" + opt.name
-        elif opt.base:
-            cfg_fname = os.path.split(opt.base[0])[-1]
-            cfg_name = os.path.splitext(cfg_fname)[0]
-            name = "_" + cfg_name
-        else:
-            name = ""
-        nowname = now + name + opt.postfix
-        logdir = os.path.join(opt.logdir, nowname)
+    
+    #     # init and save config 
+    # configs = [OmegaConf.load(cfg) for cfg in opt.base]
+    #             # print("configs", configs)
+    # cli = OmegaConf.from_dotlist(unknown)
+    #     # print("cli: ---->", cli)
 
-    ckptdir = os.path.join(logdir, "checkpoints")
-    cfgdir = os.path.join(logdir, "configs")
-    seed_everything(opt.seed)
+    # config = OmegaConf.merge(*configs, cli)
+    # print("configs: ------> ", configs)
 
-    try:
-        # Init and save configs
-        configs = [OmegaConf.load(cfg) for cfg in opt.base]
-        cli = OmegaConf.from_dotlist(unknown)
-        config = OmegaConf.merge(*configs, cli)
-        lightning_config = config.pop("lightning", OmegaConf.create())
+    # lightning_config = config.pop("lightning", OmegaConf.create())
+    # print("lightning_config ----->", lightning_config)
 
-        # Model
-        model = instantiate_from_config(config.model)
+    #     # merge trainer cli with config 
+    # trainer_config = lightning_config.get("trainer", OmegaConf.create())
+    # print("trainer_config: ---->", trainer_config)
 
-        # Trainer and callbacks
-        trainer_kwargs = {
-            "gpus": opt.gpus,
-            "max_epochs": opt.max_epochs,
-            "precision": opt.precision,
-            "accumulate_grad_batches": opt.accumulate_grad_batches,
-            "check_val_every_n_epoch": opt.check_val_every_n_epoch,
-            "resume_from_checkpoint": opt.resume_from_checkpoint,
-        }
+    # trainer_config["accelerator"] = "ddp"
+    # for k in nondefault_trainer_args(opt):
+    #     trainer_config[k] = getattr(opt, k)
 
-        # Create Trainer instance
-        trainer = Trainer(**trainer_kwargs)
-        trainer.logdir = logdir
+    # if not "gpus" in trainer_config:
+    #     del trainer_config["accelerator"]
+    #     cpu = True 
 
-        # Data
-        data = instantiate_from_config(config.data)
-        data.prepare_data()
-        data.setup()
-        print("#### Data #####")
-        for k in data.datasets:
-            print(f"{k}, {data.datasets[k].__class__.__name__}, {len(data.datasets[k])}")
+    # else:
+    #     gpuinfo = trainer_config["gpus"]
+    #     print(f"Running on GPUs {gpuinfo}")
+    #     cpu = False
 
-        # Configure learning rate
-        bs, base_lr = config.data.params.batch_size, config.model.base_learning_rate
-        if opt.gpus is not None:
-            ngpu = len(str(opt.gpus).split(","))
-        else:
-            ngpu = 1
-        if opt.scale_lr:
-            model.learning_rate = opt.accumulate_grad_batches * ngpu * bs * base_lr
-            print(
-                "Setting learning rate to {:.2e} = {} (accumulate_grad_batches) * {} (num_gpus) * {} (batchsize) * {:.2e} (base_lr)".format(
-                    model.learning_rate, opt.accumulate_grad_batches, ngpu, bs, base_lr))
-        else:
-            model.learning_rate = base_lr
-            print("++++ NOT USING LR SCALING ++++")
-            print(f"Setting learning rate to {model.learning_rate:.2e}")
+    # trainer_opt = argparse.Namespace(**trainer_config)
+    # lightning_config.trainer = trainer_config
 
-        # Run
-        if opt.train:
-            try:
-                trainer.fit(model, data)
-            except Exception:
-                raise
-        if not opt.no_test and not trainer.interrupted:
-            trainer.test(model, data)
-    except Exception:
-        if opt.debug:
-            try:
-                import pudb as debugger
-            except ImportError:
-                import pdb as debugger
-            debugger.post_mortem()
-        raise
-    finally:
-        if opt.debug and not opt.resume:
-            dst, name = os.path.split(logdir)
-            dst = os.path.join(dst, "debug_runs", name)
-            os.makedirs(os.path.split(dst)[0], exist_ok=True)
-            os.rename(logdir, dst)
-        if trainer.global_rank == 0:
-            print(trainer.profiler.summary())
+    #################
+    config = OmegaConf.load("E:\\stable_diffusion\\config\\config.yaml")
+    print("config: --->", config.model)
+
+        # model 
+    model = instantiate_from_config(config)
+    print("model: --->", model)
+
+
+        
+
+        
+
+
+
+
+
+
+
+
+        
+        
+
+    
