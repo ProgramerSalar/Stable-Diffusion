@@ -31,7 +31,7 @@ transform = v2.Compose([
 #                                      transform=transform)
 
 
-im_dataset = CelebDataset(im_path="E:\\stable_diffusion\\Data",
+im_dataset = CelebDataset(im_path="E:\\stable_diffusion\\Data",  # for colab: /content/Stable-Diffusion/Data
                           im_size=128,
                           im_channels=3)
 
