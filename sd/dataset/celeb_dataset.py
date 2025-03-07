@@ -1,8 +1,6 @@
 import glob
 import os
-import cv2
 import torchvision
-import numpy as np
 from PIL import Image
 from tqdm import tqdm
 from torch.utils.data.dataset import Dataset
