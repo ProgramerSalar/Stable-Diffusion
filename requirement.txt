@@ -1,1 +1,2 @@
 einops==0.8.1
+pytorch_lightning==2.5.0.post0

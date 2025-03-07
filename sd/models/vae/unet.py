@@ -441,23 +441,23 @@ class LatentRescaler(nn.Module):
 if __name__ == "__main__":
     x = torch.rand(64, 3, 256, 256)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # print(device)
-    # encoder = Encoder(
-    # ch=64,  # Base number of channels
-    # out_ch=3,  # Output channels (e.g., for RGB images)
-    # ch_mult=(1, 2, 4, 8),  # Channel multipliers
-    # num_res_blocks=2,  # Number of residual blocks per resolution
-    # attn_resolutions=[16],  # Apply attention at 16x16 resolution
-    # dropout=0.1,  # Dropout rate
-    # resamp_with_conv=True,  # Use convolutional resampling
-    # in_channels=3,  # Input channels (e.g., RGB images)
-    # resolution=256,  # Input resolution
-    # z_channels=256,  # Latent space channels
-    # double_z=True,  # Double the latent space channels
-    # use_linear_attn=False,  # Don't use linear attention
-    # attn_type="vanilla",  # Use standard self-attention
-    # )(x)
-    # print(encoder)
+    print(device)
+    encoder = Encoder(
+    ch=64,  # Base number of channels
+    out_ch=3,  # Output channels (e.g., for RGB images)
+    ch_mult=(1, 2, 4, 8),  # Channel multipliers
+    num_res_blocks=2,  # Number of residual blocks per resolution
+    attn_resolutions=[16],  # Apply attention at 16x16 resolution
+    dropout=0.1,  # Dropout rate
+    resamp_with_conv=True,  # Use convolutional resampling
+    in_channels=3,  # Input channels (e.g., RGB images)
+    resolution=256,  # Input resolution
+    z_channels=256,  # Latent space channels
+    double_z=True,  # Double the latent space channels
+    use_linear_attn=False,  # Don't use linear attention
+    attn_type="vanilla",  # Use standard self-attention
+    )(x)
+    print(encoder)
 
     decoder_config = {
     "ch": 64,
@@ -477,7 +477,8 @@ if __name__ == "__main__":
     }
 
     # Instantiate the Decoder
-    decoder = Decoder(**decoder_config).to(device)
+    decoder = Decoder(**decoder_config)
+    decoder = decoder.to(device)
     print(decoder)
 
 

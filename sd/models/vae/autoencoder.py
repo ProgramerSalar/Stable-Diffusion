@@ -80,7 +80,7 @@ if __name__ == "__main__":
         embed_dim=embed_dim,
         use_ema=True
     )
-
-    print(model)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
 
     # python -m sd.models.vae.autoencoder
