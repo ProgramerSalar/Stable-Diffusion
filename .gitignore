@@ -1,2 +1,20 @@
-**/__pycache__/
+# Ignore __pycache__ directories
 __pycache__/
+
+# Ignore .pyc files
+*.pyc
+
+# Other common ignores
+*.log
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.env
+*.venv
+venv/
+.env/
+.venv/
+dist/
+build/
+*.egg-info/
