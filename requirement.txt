@@ -1,2 +1,4 @@
 einops==0.8.1
 pytorch_lightning==2.5.0.post0
+omegaconf==2.3.0
+natsort==8.4.0
