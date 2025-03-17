@@ -43,7 +43,7 @@ class Encoder(nn.Module):
                 block_in = block_out
                 if curr_res in attn_resolutions:
                     attn.append(make_attn(block_in, attn_type=attn_type))
-            down = nn.Module()
+            down = nn.ModuleList()
             down.block = block
             down.attn = attn
             if i_level != self.num_resolutions-1:
@@ -52,7 +52,7 @@ class Encoder(nn.Module):
             self.down.append(down)
 
         # middle
-        self.mid = nn.Module()
+        self.mid = nn.ModuleList()
         self.mid.block_1 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=self.temb_ch,
@@ -297,7 +297,7 @@ class Decoder(nn.Module):
                                        padding=1)
 
         # middle
-        self.mid = nn.Module()
+        self.mid = nn.ModuleList()
         self.mid.block_1 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=self.temb_ch,
@@ -322,7 +322,7 @@ class Decoder(nn.Module):
                 block_in = block_out
                 if curr_res in attn_resolutions:
                     attn.append(make_attn(block_in, attn_type=attn_type))
-            up = nn.Module()
+            up = nn.ModuleList()
             up.block = block
             up.attn = attn
             if i_level != 0:
@@ -481,8 +481,8 @@ if __name__ == "__main__":
     }
 
     # Instantiate the Decoder
-    decoder = Decoder(**decoder_config)(x)
-    decoder = decoder.to(device)
+    decoder = Decoder(**decoder_config).to(device)
+    decoder = decoder(x.to(device))
     print(decoder)
 
 
