@@ -37,7 +37,7 @@ im_dataset = CelebDataset(im_path="E:\\stable_diffusion\\Data",  # for colab: /c
 
 
 autoEncoder_data_loader = DataLoader(im_dataset,
-                                     batch_size=4,
+                                     batch_size=2,
                                      shuffle=True)
 
 

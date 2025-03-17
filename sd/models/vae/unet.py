@@ -440,24 +440,28 @@ class LatentRescaler(nn.Module):
 
 if __name__ == "__main__":
     x = torch.rand(64, 3, 256, 256)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda")
     print(device)
-    encoder = Encoder(
-    ch=64,  # Base number of channels
-    out_ch=3,  # Output channels (e.g., for RGB images)
-    ch_mult=(1, 2, 4, 8),  # Channel multipliers
-    num_res_blocks=2,  # Number of residual blocks per resolution
-    attn_resolutions=[16],  # Apply attention at 16x16 resolution
-    dropout=0.1,  # Dropout rate
-    resamp_with_conv=True,  # Use convolutional resampling
-    in_channels=3,  # Input channels (e.g., RGB images)
-    resolution=256,  # Input resolution
-    z_channels=256,  # Latent space channels
-    double_z=True,  # Double the latent space channels
-    use_linear_attn=False,  # Don't use linear attention
-    attn_type="vanilla",  # Use standard self-attention
-    )(x)
-    print(encoder)
+
+    # encoder = Encoder(
+    # ch=64,  # Base number of channels
+    # out_ch=3,  # Output channels (e.g., for RGB images)
+    # ch_mult=(1, 2, 4, 8),  # Channel multipliers
+    # num_res_blocks=2,  # Number of residual blocks per resolution
+    # attn_resolutions=[16],  # Apply attention at 16x16 resolution
+    # dropout=0.1,  # Dropout rate
+    # resamp_with_conv=True,  # Use convolutional resampling
+    # in_channels=3,  # Input channels (e.g., RGB images)
+    # resolution=256,  # Input resolution
+    # z_channels=256,  # Latent space channels
+    # double_z=True,  # Double the latent space channels
+    # use_linear_attn=False,  # Don't use linear attention
+    # attn_type="vanilla",  # Use standard self-attention
+    # )(x)
+    # print(encoder)
+
+# ------------------------------------------------------------------------------------------------------------------------------------------
+
 
     decoder_config = {
     "ch": 64,
@@ -467,9 +471,9 @@ if __name__ == "__main__":
     "attn_resolutions": [16],
     "dropout": 0.1,
     "resamp_with_conv": True,
-    "in_channels": 256,
-    "resolution": 256,
-    "z_channels": 256,
+    "in_channels": 64,
+    "resolution": 64,
+    "z_channels": 64,
     "give_pre_end": False,
     "tanh_out": True,
     "use_linear_attn": False,

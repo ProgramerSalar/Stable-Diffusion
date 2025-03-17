@@ -14,6 +14,7 @@ from sd.utils import instantiate_from_config
 rescale = lambda x: (x + 1.) / 2.
 
 def custom_to_pil(x):
+    
     x = x.detach().cpu()
     x = torch.clamp(x, -1., 1.)
     x = (x + 1.) / 2.
@@ -116,8 +117,10 @@ def make_convolutional_sample(model, batch_size, vanilla=False, custom_steps=Non
     return log
 
 def run(model, logdir, batch_size=50, vanilla=False, custom_steps=None, eta=None, n_samples=50000, nplog=None):
+
     if vanilla:
         print(f'Using Vanilla DDPM sampling with {model.num_timesteps} sampling steps.')
+
     else:
         print(f'Using DDIM sampling with {custom_steps} sampling steps and eta={eta}')
 
