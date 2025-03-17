@@ -481,7 +481,7 @@ if __name__ == "__main__":
     }
 
     # Instantiate the Decoder
-    decoder = Decoder(**decoder_config)
+    decoder = Decoder(**decoder_config)(x)
     decoder = decoder.to(device)
     print(decoder)
 
