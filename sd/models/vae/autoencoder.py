@@ -153,11 +153,27 @@ class VQModel(pl.LightningModule):
     
 
     def get_input(self, batch, k):
-        x = batch[k]
-        if len(x.shape) == 3:
-            x = x[..., None]
+        if isinstance(batch, dict): 
+            x = batch[k]
 
-        x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format).float()
+        else:
+            x = batch 
+
+        print("shape of x", len(x.shape))  # torch.Size([32, 3, 256, 256])
+
+
+
+        if len(x.shape) == 3:
+            #  x = x[..., None]
+            x = x.unsqueeze(0)
+            x = x.permute(0, 3, 1, 2)
+
+        elif len(x.shape) == 4:
+            x = x.permute(0, 1, 3, 2) # [32, 256, 3, 256]
+
+
+        # x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format).float()
+        x = x.to(memory_format=torch.contiguous_format).float()
 
         if self.batch_resize_range is not None:
             lower_size = self.batch_resize_range[0]
@@ -176,6 +192,11 @@ class VQModel(pl.LightningModule):
             x = x.detach()
             
         return x 
+
+
+    
+
+
     
 
 
@@ -379,11 +400,11 @@ class VQModel(pl.LightningModule):
         ])
 
         # Create dataset
-        dataset = ImageDataset(image_folder="E:\\stable_diffusion\\Data\\10_images", transform=transform)
+        dataset = ImageDataset(image_folder="E:\\stable_diffusion\\Data\\images", transform=transform) # for colab -> /content/stable_diffusion/Data/10_images
 
         # Create DataLoader
         batch_size = 32
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
         return dataloader
 
 
